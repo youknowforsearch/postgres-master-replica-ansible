@@ -12,7 +12,7 @@ No application-specific coupling — configure your own databases, users, and ne
 - **Storage profiles** — `ssd`, `hdd`, or `iops` (with `postgres_disk_iops`)
 - **Log rotation** — PostgreSQL `log_rotation_age` / `log_rotation_size` plus host `logrotate`
 - **Metrics** — `postgres_exporter` on each node (Prometheus scrape target)
-- **Air-gapped Docker** — optional offline bundle (`files/docker-deb.tgz`, not committed)
+- **Air-gapped Docker** — optional offline bundle (`files/docker-deb.tgz`)
 
 ## Layout
 
