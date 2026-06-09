@@ -6,29 +6,27 @@
   changed_when: false
   failed_when: false
 
-- name: Find Docker bundle parts on the Ansible controller
-  ansible.builtin.find:
-    paths: "{{ docker_airgapped_bundle_parts_dir }}"
-    patterns: "{{ docker_airgapped_bundle_part_pattern }}"
+- name: Check Docker bundle exists on the Ansible controller
+  ansible.builtin.stat:
+    path: "{{ docker_airgapped_bundle_src }}"
   delegate_to: localhost
   become: false
   run_once: true
-  register: docker_bundle_parts
+  register: docker_bundle
   when:
     - docker_airgapped_enabled | bool
     - docker_version_check.rc != 0
 
-- name: Fail when bundle parts are missing
+- name: Fail when Docker bundle is missing
   ansible.builtin.fail:
     msg: >-
-      Docker is not installed and no bundle parts matched
-      {{ docker_airgapped_bundle_parts_dir }}/{{ docker_airgapped_bundle_part_pattern }}.
-      Split files/docker-deb.tgz into parts (see files/README.md), install Docker
-      manually, or set docker_airgapped_enabled: false.
+      Docker is not installed and {{ docker_airgapped_bundle_src }} was not found.
+      Clone with Git LFS (git lfs pull), install Docker manually, or set
+      docker_airgapped_enabled: false.
   when:
     - docker_airgapped_enabled | bool
     - docker_version_check.rc != 0
-    - docker_bundle_parts.matched | default(0) == 0
+    - not docker_bundle.stat.exists
 
 - name: Install Docker from the air-gapped bundle
   when:
@@ -41,28 +39,12 @@
         state: directory
         mode: "0755"
 
-    - name: Copy Docker bundle parts to the host
-      ansible.builtin.copy:
-        src: "{{ item.path }}"
-        dest: "{{ docker_airgapped_workdir }}/{{ item.path | basename }}"
-        mode: "0644"
-      loop: "{{ docker_bundle_parts.files | sort(attribute='path') }}"
-      loop_control:
-        label: "{{ item.path | basename }}"
-
-    - name: Reassemble Docker bundle from parts
-      ansible.builtin.shell: >-
-        /bin/cat {{ docker_bundle_parts.files | sort(attribute='path') | map(attribute='path') | map('basename') | join(' ') }}
-        > {{ docker_airgapped_bundle_name }}
-      args:
-        chdir: "{{ docker_airgapped_workdir }}"
-        creates: "{{ docker_airgapped_bundle_dest }}"
-
-    - name: Extract Docker bundle on the host
+    - name: Unarchive docker-deb.tgz onto the host
       ansible.builtin.unarchive:
-        src: "{{ docker_airgapped_bundle_dest }}"
+        src: "{{ docker_airgapped_bundle_src }}"
         dest: "{{ docker_airgapped_workdir }}"
-        remote_src: true
+        mode: "0755"
+        remote_src: false
 
     - name: Make install.sh executable
       ansible.builtin.file:

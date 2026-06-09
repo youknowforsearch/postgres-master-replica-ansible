@@ -12,7 +12,7 @@ No application-specific coupling — configure your own databases, users, and ne
 - **Storage profiles** — `ssd`, `hdd`, or `iops` (with `postgres_disk_iops`)
 - **Log rotation** — PostgreSQL `log_rotation_age` / `log_rotation_size` plus host `logrotate`
 - **Metrics** — `postgres_exporter` on each node (Prometheus scrape target)
-- **Air-gapped Docker** — offline bundle split into two repo files (`files/docker-deb.tgz.part00` + `.part01`)
+- **Air-gapped Docker** — offline bundle via Git LFS (`files/docker-deb.tgz`)
 
 ## Layout
 
@@ -25,9 +25,9 @@ postgres-master-replica-ansible/
 ├── group_vars/
 │   ├── all.yml                  # SSH, private_network
 │   └── postgresql.yml           # secrets, databases, tuning inputs
+├── .gitattributes               # Git LFS tracking
 ├── files/
-│   ├── docker-deb.tgz.part00    # offline Docker bundle (part 1/2)
-│   ├── docker-deb.tgz.part01    # offline Docker bundle (part 2/2)
+│   ├── docker-deb.tgz           # offline Docker bundle (Git LFS)
 │   └── README.md
 └── roles/
     ├── lvm_preflight/
@@ -38,6 +38,9 @@ postgres-master-replica-ansible/
 ## Quick start
 
 ```bash
+git lfs install
+git lfs pull   # if files/docker-deb.tgz is only a few hundred bytes, run this
+
 ansible-galaxy collection install -r requirements.yaml
 
 # 1. Copy and edit configuration
@@ -178,14 +181,15 @@ postgresql://myapp_owner:<password>@<replica-ip>:5432/myapp
 
 ## Air-gapped Docker
 
-The offline Docker bundle is committed as **two parts** (~55 MB each, under GitHub's 100 MB limit):
+The offline Docker bundle (`files/docker-deb.tgz`, ~110 MB) is tracked with **Git LFS** so it can live in the GitHub repo without hitting the 100 MB file limit.
 
-```text
-files/docker-deb.tgz.part00
-files/docker-deb.tgz.part01
+```bash
+git lfs install          # once per machine
+git lfs pull             # fetch the real archive after clone
+ls -lh files/docker-deb.tgz   # should be ~110 MB, not a tiny pointer
 ```
 
-The `docker_airgapped` role reassembles them on each host before install. The full `files/docker-deb.tgz` stays gitignored. See `files/README.md` to regenerate parts.
+The `docker_airgapped` role unarchives it on each host when Docker is not already installed. See `files/README.md`.
 
 Set `docker_airgapped_enabled: false` if Docker is already installed.
 
