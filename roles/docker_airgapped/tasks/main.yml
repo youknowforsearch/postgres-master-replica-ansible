@@ -1,0 +1,46 @@
+---
+- name: Check whether Docker is already installed
+  ansible.builtin.command: docker --version
+  register: docker_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Docker from the air-gapped bundle
+  when: docker_version_check.rc != 0
+  block:
+    - name: Ensure staging directory exists
+      ansible.builtin.file:
+        path: "{{ docker_airgapped_workdir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Unarchive docker-deb.tgz onto the host
+      ansible.builtin.unarchive:
+        src: "{{ docker_airgapped_bundle_src }}"
+        dest: "{{ docker_airgapped_workdir }}"
+        mode: "0755"
+        # src lives on the controller and is pushed to the remote host.
+        remote_src: false
+
+    - name: Make install.sh executable
+      ansible.builtin.file:
+        path: "{{ docker_airgapped_extracted_dir }}/install.sh"
+        mode: "0755"
+
+    - name: Run install.sh to install Docker and configure the daemon
+      ansible.builtin.command: ./install.sh
+      args:
+        chdir: "{{ docker_airgapped_extracted_dir }}"
+      register: docker_install_run
+      changed_when: true
+
+- name: Ensure Docker service is enabled and running
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Wait for the Docker socket to be available
+  ansible.builtin.wait_for:
+    path: /var/run/docker.sock
+    timeout: 60

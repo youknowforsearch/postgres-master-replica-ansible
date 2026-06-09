@@ -1,0 +1,79 @@
+listen_addresses = '{{ bind_ip }}, 127.0.0.1'
+
+# ─── Connections ──────────────────────────────────────────────────────────────
+max_connections                  = {{ pg_max_connections }}
+superuser_reserved_connections   = {{ pg_superuser_reserved_connections }}
+
+# ─── Memory ───────────────────────────────────────────────────────────────────
+shared_buffers                   = {{ pg_shared_buffers }}
+work_mem                         = {{ pg_work_mem }}
+maintenance_work_mem             = {{ pg_maintenance_work_mem }}
+effective_cache_size             = {{ pg_effective_cache_size }}
+huge_pages                       = try
+dynamic_shared_memory_type       = posix
+
+# ─── WAL / Replication ────────────────────────────────────────────────────────
+wal_level                        = {{ pg_wal_level }}
+synchronous_commit               = {{ pg_synchronous_commit }}
+max_wal_senders                  = {{ pg_max_wal_senders }}
+wal_keep_size                    = {{ pg_wal_keep_size }}
+max_wal_size                     = {{ pg_max_wal_size }}
+min_wal_size                     = {{ pg_min_wal_size }}
+wal_compression                  = on
+wal_buffers                      = {{ pg_wal_buffers }}
+checkpoint_completion_target     = 0.9
+checkpoint_timeout               = 15min
+
+# ─── Standby ──────────────────────────────────────────────────────────────────
+hot_standby                      = {{ pg_hot_standby }}
+hot_standby_feedback             = on
+
+# ─── I/O ──────────────────────────────────────────────────────────────────────
+effective_io_concurrency         = {{ pg_effective_io_concurrency }}
+maintenance_io_concurrency       = {{ pg_maintenance_io_concurrency }}
+random_page_cost                 = {{ pg_random_page_cost }}
+
+# ─── Parallelism ────────────────────────────────────────────────────────────
+max_worker_processes             = {{ pg_max_worker_processes }}
+max_parallel_workers_per_gather  = {{ pg_max_parallel_workers_per_gather }}
+max_parallel_maintenance_workers = {{ pg_max_parallel_maintenance_workers }}
+max_parallel_workers             = {{ pg_max_parallel_workers }}
+
+# ─── Autovacuum ───────────────────────────────────────────────────────────────
+autovacuum                       = on
+autovacuum_max_workers           = {{ pg_autovacuum_max_workers }}
+autovacuum_naptime               = 30s
+autovacuum_vacuum_scale_factor   = 0.05
+autovacuum_analyze_scale_factor  = 0.02
+autovacuum_vacuum_cost_delay     = 2ms
+autovacuum_vacuum_cost_limit     = 400
+
+# ─── Query Planner ────────────────────────────────────────────────────────────
+default_statistics_target        = 100
+jit                              = on
+
+# ─── Logging ──────────────────────────────────────────────────────────────────
+logging_collector                = on
+log_directory                    = '/var/log/postgresql'
+log_filename                     = 'postgresql-%Y-%m-%d.log'
+log_rotation_age                 = {{ pg_log_rotation_age }}
+log_rotation_size                = {{ pg_log_rotation_size }}
+log_min_duration_statement       = {{ pg_log_min_duration_statement }}
+log_checkpoints                  = {{ pg_log_checkpoints }}
+log_connections                  = {{ pg_log_connections }}
+log_disconnections               = {{ pg_log_disconnections }}
+log_lock_waits                   = {{ pg_log_lock_waits }}
+log_line_prefix                  = '%t [%p]: user=%u,db=%d,app=%a,client=%h '
+log_timezone                     = '{{ pg_timezone }}'
+
+# ─── Misc ─────────────────────────────────────────────────────────────────────
+idle_in_transaction_session_timeout = 30min
+lock_timeout                     = 30s
+deadlock_timeout                 = 1s
+track_io_timing                  = on
+timezone                         = '{{ pg_timezone }}'
+datestyle                        = 'iso, mdy'
+default_text_search_config       = 'pg_catalog.english'
+
+shared_preload_libraries         = 'pg_stat_statements'
+lc_messages                      = 'en_US.UTF-8'

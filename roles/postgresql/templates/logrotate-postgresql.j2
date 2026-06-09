@@ -1,0 +1,11 @@
+{{ postgres_log_dir }}/*.log {
+    {{ postgres_logrotate_frequency }}
+    missingok
+    rotate {{ postgres_logrotate_rotate }}
+    maxage {{ postgres_logrotate_maxage }}
+    compress
+    delaycompress
+    notifempty
+    copytruncate
+    create 0640 70 70
+}

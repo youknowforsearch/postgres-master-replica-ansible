@@ -1,0 +1,13 @@
+---
+# Air-gapped Docker installation from a local bundle.
+# The bundle (docker-deb.tgz) ships the .deb packages and an install.sh
+# that runs `dpkg -i` and writes /etc/docker/daemon.json.
+
+# Local path (on the Ansible controller) to the docker bundle.
+docker_airgapped_bundle_src: "{{ playbook_dir }}/files/docker-deb.tgz"
+
+# Remote staging directory where the bundle is extracted.
+docker_airgapped_workdir: /tmp/docker-deb
+
+# Name of the directory created inside the tarball (docker-deb/...).
+docker_airgapped_extracted_dir: "{{ docker_airgapped_workdir }}/docker-deb"

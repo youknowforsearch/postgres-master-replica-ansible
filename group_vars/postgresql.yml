@@ -1,0 +1,51 @@
+---
+# ── LVM preflight (dedicated data disk) ────────────────────────────────────
+# The disk(s) become one LVM volume mounted at lvm_mount_point (PostgreSQL data).
+lvm_disk_devices:
+  - /dev/sdb
+lvm_vg_name: postgres_vg
+lvm_lv_name: postgres_lv
+lvm_lv_size: "100%FREE"
+lvm_mount_point: /data/postgres
+lvm_filesystem_type: xfs
+
+# ── Hardware profile (used when postgres_auto_tune: true) ────────────────────
+# Set explicitly or leave unset to auto-detect from Ansible facts on each host.
+# postgres_vcpus: 4
+# postgres_ram_gb: 16
+postgres_ram_to_cpu_ratio: 4          # 2 = 1:2 GB RAM per vCPU, 4 = 1:4
+postgres_disk_size_gb: 100
+postgres_disk_storage_type: ssd       # ssd | hdd | iops
+postgres_disk_iops: 3000              # only when storage_type is iops
+postgres_auto_tune: true              # set false to use static defaults in the role
+
+# Optional connection cap override (otherwise derived from RAM/CPU ratio).
+# postgres_max_connections: 200
+
+# ── Secrets — replace before deploy or use Ansible Vault ─────────────────────
+postgres_superuser_password: "CHANGE_ME_superuser"
+postgres_replication_password: "CHANGE_ME_replication"
+postgres_exporter_password: "CHANGE_ME_exporter"
+
+# ── pg_hba extras (in addition to per-database rules) ────────────────────────
+pg_hba_entries:
+  - { type: host, database: all, user: all, address: "{{ private_network }}", method: scram-sha-256 }
+
+# ── Application databases ────────────────────────────────────────────────────
+# Example: one OLTP database with owner, optional readers/writers, extensions.
+app_db_password: "CHANGE_ME_app"
+postgres_databases:
+  - name: myapp
+    owner:
+      username: myapp_owner
+      password: "{{ app_db_password }}"
+    extensions:
+      - uuid-ossp
+      - pgcrypto
+      - pg_trgm
+    # readers:
+    #   - username: myapp_reader
+    #     password: "CHANGE_ME_reader"
+    # writers:
+    #   - username: myapp_writer
+    #     password: "CHANGE_ME_writer"

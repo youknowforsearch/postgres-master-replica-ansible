@@ -1,0 +1,107 @@
+---
+- name: Resolve hardware profile for tuning
+  ansible.builtin.set_fact:
+    _pg_vcpus: "{{ postgres_vcpus | default(ansible_processor_vcpus | default(2)) | int }}"
+    _pg_ram_gb: "{{ postgres_ram_gb | default(((ansible_memtotal_mb | default(4096)) / 1024) | round | int) | int }}"
+    _pg_disk_gb: "{{ postgres_disk_size_gb | default(100) | int }}"
+    _pg_replica_count: "{{ groups['postgresql-replica'] | default([]) | length }}"
+
+- name: Validate tuning inputs
+  ansible.builtin.assert:
+    that:
+      - postgres_ram_to_cpu_ratio | int in [2, 4]
+      - postgres_disk_storage_type in ['ssd', 'hdd', 'iops']
+    fail_msg: >-
+      postgres_ram_to_cpu_ratio must be 2 or 4;
+      postgres_disk_storage_type must be ssd, hdd, or iops.
+
+- name: Note detected vs configured RAM/CPU ratio
+  ansible.builtin.debug:
+    msg: >-
+      Host {{ inventory_hostname }}: {{ _pg_ram_gb }} GB RAM, {{ _pg_vcpus }} vCPU
+      (detected 1:{{ (_pg_ram_gb / _pg_vcpus) | round | int }}).
+      Tuning profile uses postgres_ram_to_cpu_ratio=1:{{ postgres_ram_to_cpu_ratio }}.
+  when: (_pg_ram_gb / _pg_vcpus) | round | int != postgres_ram_to_cpu_ratio | int
+
+- name: Derive max_connections from RAM/CPU profile
+  ansible.builtin.set_fact:
+    pg_max_connections: >-
+      {{
+        postgres_max_connections | default(
+          100 if postgres_ram_to_cpu_ratio | int == 4 else 200
+        ) | int
+      }}
+
+- name: Calculate memory and parallelism settings
+  ansible.builtin.set_fact:
+    pg_shared_buffers: "{{ (_pg_ram_gb * 0.25) | int }}GB"
+    pg_effective_cache_size: "{{ (_pg_ram_gb * 0.75) | int }}GB"
+    pg_maintenance_work_mem: "{{ [((_pg_ram_gb / 16) | int), 2] | min }}GB"
+    pg_work_mem: >-
+      {{
+        [
+          (((_pg_ram_gb * 1024) / (pg_max_connections * 4)) | int),
+          64
+        ] | min
+      }}MB
+    postgres_shm_size: "{{ [((_pg_ram_gb * 0.25) | int), 1] | max }}g"
+    pg_max_worker_processes: "{{ _pg_vcpus }}"
+    pg_max_parallel_workers: "{{ _pg_vcpus }}"
+    pg_max_parallel_workers_per_gather: "{{ [_pg_vcpus // 2, 1] | max }}"
+    pg_max_parallel_maintenance_workers: "{{ [_pg_vcpus // 2, 1] | max }}"
+    pg_autovacuum_max_workers: "{{ [[_pg_vcpus - 1, 1] | max, 6] | min }}"
+
+- name: Calculate WAL sizes from disk capacity
+  ansible.builtin.set_fact:
+    _wal_target_gb: "{{ [[(_pg_disk_gb * 0.05) | int, 1] | max, 16] | min }}"
+    pg_max_wal_size: "{{ _wal_target_gb }}GB"
+    pg_min_wal_size: "{{ [[(_wal_target_gb // 4), 1] | max] }}GB"
+    pg_wal_keep_size: "{{ _wal_target_gb }}GB"
+    pg_wal_buffers: "{{ [[(_pg_ram_gb * 16), 64] | min] }}MB"
+
+- name: Apply SSD I/O profile
+  ansible.builtin.set_fact:
+    pg_effective_io_concurrency: 200
+    pg_maintenance_io_concurrency: 200
+    pg_random_page_cost: 1.1
+  when: postgres_disk_storage_type == 'ssd'
+
+- name: Apply HDD I/O profile
+  ansible.builtin.set_fact:
+    pg_effective_io_concurrency: 2
+    pg_maintenance_io_concurrency: 2
+    pg_random_page_cost: 4.0
+  when: postgres_disk_storage_type == 'hdd'
+
+- name: Apply IOPS-based I/O profile
+  ansible.builtin.set_fact:
+    pg_effective_io_concurrency: "{{ [[(postgres_disk_iops | int / 10) | int, 2] | max, 1000] | min }}"
+    pg_maintenance_io_concurrency: "{{ [[(postgres_disk_iops | int / 10) | int, 2] | max, 1000] | min }}"
+    pg_random_page_cost: >-
+      {{
+        1.1 if (postgres_disk_iops | int) >= 10000 else
+        (1.5 if (postgres_disk_iops | int) >= 5000 else
+        (2.5 if (postgres_disk_iops | int) >= 1000 else 4.0))
+      }}
+  when: postgres_disk_storage_type == 'iops'
+
+- name: Scale replication sender limit for replica count
+  ansible.builtin.set_fact:
+    pg_max_wal_senders: "{{ _pg_replica_count + 4 }}"
+
+- name: Show computed PostgreSQL tuning
+  ansible.builtin.debug:
+    msg:
+      vcpus: "{{ _pg_vcpus }}"
+      ram_gb: "{{ _pg_ram_gb }}"
+      disk_gb: "{{ _pg_disk_gb }}"
+      storage: "{{ postgres_disk_storage_type }}"
+      max_connections: "{{ pg_max_connections }}"
+      shared_buffers: "{{ pg_shared_buffers }}"
+      effective_cache_size: "{{ pg_effective_cache_size }}"
+      work_mem: "{{ pg_work_mem }}"
+      max_wal_size: "{{ pg_max_wal_size }}"
+      wal_keep_size: "{{ pg_wal_keep_size }}"
+      max_wal_senders: "{{ pg_max_wal_senders }}"
+      effective_io_concurrency: "{{ pg_effective_io_concurrency }}"
+      random_page_cost: "{{ pg_random_page_cost }}"

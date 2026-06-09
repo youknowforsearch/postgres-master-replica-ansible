@@ -1,0 +1,48 @@
+---
+- name: Wait for master to be reachable
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[postgres_master_host]['bind_ip'] }}"
+    port: "{{ postgres_port }}"
+    timeout: 120
+
+- name: Check if replica data directory is empty
+  ansible.builtin.find:
+    paths: "{{ postgres_data_dir }}"
+  register: data_dir_contents
+
+- name: Run pg_basebackup to sync replica from master
+  community.docker.docker_container:
+    name: pg_basebackup
+    image: "{{ postgres_image }}:{{ postgres_tag }}"
+    state: started
+    auto_remove: true
+    volumes:
+      - "{{ postgres_data_dir }}:/var/lib/postgresql/data"
+    env:
+      PGPASSWORD: "{{ postgres_replication_password }}"
+      PGDATA: /var/lib/postgresql/data
+    command: >
+      pg_basebackup
+      -h {{ hostvars[postgres_master_host]['bind_ip'] }}
+      -p {{ postgres_port }}
+      -U {{ postgres_replication_user }}
+      -D /var/lib/postgresql/data
+      -Fp -Xs -R -P
+  when: data_dir_contents.matched == 0
+
+- name: Wait for basebackup to settle
+  ansible.builtin.wait_for:
+    timeout: 5
+
+- name: Start postgres on replica
+  community.docker.docker_compose_v2:
+    project_src: "{{ postgres_base_dir }}"
+    state: present
+
+- name: Wait for replica to be healthy
+  community.docker.docker_container_info:
+    name: postgres
+  register: container_info
+  until: container_info.container.State.Health.Status == 'healthy'
+  retries: 20
+  delay: 10

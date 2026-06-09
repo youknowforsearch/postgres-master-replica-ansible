@@ -1,0 +1,86 @@
+---
+# ─── Docker images ──────────────────────────────────────────────────────────
+postgres_image: postgres
+postgres_tag: "18.3-alpine"
+postgres_exporter_image_tag: "prometheuscommunity/postgres-exporter:v0.18.1"
+
+# ─── Directories ────────────────────────────────────────────────────────────
+postgres_base_dir: /opt/postgresql
+postgres_data_dir: "{{ lvm_mount_point }}"
+postgres_config_dir: "{{ postgres_base_dir }}/config"
+postgres_init_dir: "{{ postgres_base_dir }}/init"
+postgres_log_dir: "/var/log/postgresql"
+
+# ─── Network ────────────────────────────────────────────────────────────────
+postgres_port: 5432
+postgres_exporter_port: 9187
+
+# Master hostname in inventory (first host in postgresql-master group by default).
+postgres_master_host: "{{ groups['postgresql-master'] | first }}"
+
+# ─── Default DB ─────────────────────────────────────────────────────────────
+postgres_default_db: postgres
+
+# ─── System users ───────────────────────────────────────────────────────────
+postgres_replication_user: replicator
+postgres_exporter_user: exporter
+
+# ─── Extra pg_hba entries ─────────────────────────────────────────────────
+pg_hba_entries: []
+
+# ─── Hardware / auto-tuning ─────────────────────────────────────────────────
+# Override per host or in group_vars/postgresql.yml.
+# postgres_vcpus: 4
+# postgres_ram_gb: 16
+postgres_ram_to_cpu_ratio: 4
+postgres_disk_size_gb: 100
+postgres_disk_storage_type: ssd
+postgres_disk_iops: 3000
+postgres_auto_tune: true
+
+# ─── Static tuning (used when postgres_auto_tune: false) ────────────────────
+pg_max_connections: 200
+pg_superuser_reserved_connections: 3
+pg_shared_buffers: 4GB
+pg_effective_cache_size: 12GB
+pg_maintenance_work_mem: 1GB
+pg_work_mem: 16MB
+postgres_shm_size: "1g"
+pg_wal_level: replica
+pg_synchronous_commit: "on"
+pg_max_wal_senders: 10
+pg_wal_keep_size: 4GB
+pg_max_wal_size: 4GB
+pg_min_wal_size: 1GB
+pg_wal_buffers: 16MB
+pg_hot_standby: "on"
+pg_effective_io_concurrency: 200
+pg_maintenance_io_concurrency: 200
+pg_random_page_cost: 1.1
+pg_max_worker_processes: 4
+pg_max_parallel_workers_per_gather: 2
+pg_max_parallel_maintenance_workers: 2
+pg_max_parallel_workers: 4
+pg_autovacuum_max_workers: 3
+
+# ─── Logging / rotation ─────────────────────────────────────────────────────
+# PostgreSQL internal rotation (logging_collector).
+pg_log_rotation_age: "1d"
+pg_log_rotation_size: "100MB"
+pg_log_min_duration_statement: 900
+pg_log_checkpoints: "on"
+pg_log_connections: "on"
+pg_log_disconnections: "on"
+pg_log_lock_waits: "on"
+
+# Host-level logrotate for files under postgres_log_dir (belt-and-suspenders).
+postgres_logrotate_enabled: true
+postgres_logrotate_frequency: daily
+postgres_logrotate_rotate: 14
+postgres_logrotate_maxage: 30
+
+# ─── Locale / time ──────────────────────────────────────────────────────────
+pg_timezone: "UTC"
+
+# ─── Application databases (define in group_vars/postgresql.yml) ────────────
+postgres_databases: []

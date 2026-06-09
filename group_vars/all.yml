@@ -1,0 +1,7 @@
+---
+# ── SSH / connection ─────────────────────────────────────────────────────────
+ansible_user: ansible
+ansible_python_interpreter: /usr/bin/python3
+
+# CIDR allowed to reach application database users (pg_hba).
+private_network: "10.0.0.0/24"

@@ -1,0 +1,29 @@
+---
+- name: Create init scripts directory
+  ansible.builtin.file:
+    path: "{{ postgres_init_dir }}"
+    state: directory
+    mode: "0750"
+    owner: "70"
+    group: "70"
+
+- name: Deploy init users SQL script
+  ansible.builtin.template:
+    src: init-users.sql.j2
+    dest: "{{ postgres_init_dir }}/01-init-users.sql"
+    mode: "0640"
+    owner: "70"
+    group: "70"
+
+- name: Start postgres on master
+  community.docker.docker_compose_v2:
+    project_src: "{{ postgres_base_dir }}"
+    state: present
+
+- name: Wait for master to be healthy
+  community.docker.docker_container_info:
+    name: postgres
+  register: container_info
+  until: container_info.container.State.Health.Status == 'healthy'
+  retries: 20
+  delay: 10

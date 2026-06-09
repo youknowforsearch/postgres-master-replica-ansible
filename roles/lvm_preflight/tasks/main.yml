@@ -1,0 +1,106 @@
+---
+# Preflight: turn the dedicated data disk (/dev/sdb) into an LVM volume and
+# mount it directly at the PostgreSQL data directory. PostgreSQL writes
+# straight onto this LVM-backed filesystem (no bind mount / nesting).
+
+- name: Install LVM2
+  ansible.builtin.package:
+    name: lvm2
+    state: present
+
+- name: Gather existing PVs
+  ansible.builtin.command: pvs --noheadings -o pv_name
+  register: existing_pvs
+  changed_when: false
+  failed_when: existing_pvs.rc not in [0, 5]
+
+- name: Gather existing VGs
+  ansible.builtin.command: vgs --noheadings -o vg_name
+  register: existing_vgs
+  changed_when: false
+  failed_when: existing_vgs.rc not in [0, 5]
+
+- name: Gather existing LVs
+  ansible.builtin.command: lvs --noheadings -o lv_name,vg_name
+  register: existing_lvs
+  changed_when: false
+  failed_when: existing_lvs.rc not in [0, 5]
+
+- name: Identify new devices (not yet PVs)
+  ansible.builtin.set_fact:
+    new_devices: >-
+      {{
+        lvm_disk_devices | map('trim') | list |
+        difference(existing_pvs.stdout_lines | map('trim') | list)
+      }}
+
+- name: Ensure new devices are not already mounted
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      lsblk -no MOUNTPOINT {{ item }} |
+      grep -q '/.*'
+    executable: /bin/bash
+  register: mount_check
+  failed_when: mount_check.rc == 0
+  changed_when: false
+  loop: "{{ new_devices }}"
+
+- name: Create VG if it does not exist
+  community.general.lvg:
+    vg: "{{ lvm_vg_name }}"
+    pvs: "{{ lvm_disk_devices | join(',') }}"
+    state: present
+  when: lvm_vg_name not in existing_vgs.stdout_lines | map('trim') | list
+
+- name: Extend VG with new devices
+  ansible.builtin.command: >-
+    vgextend {{ lvm_vg_name }} {{ new_devices | join(' ') }}
+  when:
+    - lvm_vg_name in existing_vgs.stdout_lines | map('trim') | list
+    - new_devices | length > 0
+  changed_when: true
+
+- name: Create LV if it does not exist
+  community.general.lvol:
+    vg: "{{ lvm_vg_name }}"
+    lv: "{{ lvm_lv_name }}"
+    size: "{{ lvm_lv_size }}"
+    state: present
+  when: >-
+    lvm_lv_name not in
+    existing_lvs.stdout_lines | map('trim') | map('split') | map('first') | list
+
+- name: Extend LV if requested (grow only, never shrink)
+  community.general.lvol:
+    vg: "{{ lvm_vg_name }}"
+    lv: "{{ lvm_lv_name }}"
+    size: "{{ lvm_lv_size }}"
+    state: present
+    shrink: false
+    resizefs: true
+  when: >-
+    lvm_lv_name in
+    existing_lvs.stdout_lines | map('trim') | map('split') | map('first') | list
+
+- name: Create filesystem on the LV
+  community.general.filesystem:
+    fstype: "{{ lvm_filesystem_type }}"
+    dev: "/dev/{{ lvm_vg_name }}/{{ lvm_lv_name }}"
+    resizefs: true
+
+- name: Ensure mount point directory exists
+  ansible.builtin.file:
+    path: "{{ lvm_mount_point }}"
+    state: directory
+    mode: "0755"
+
+- name: Mount the logical volume at the PostgreSQL data directory
+  ansible.posix.mount:
+    path: "{{ lvm_mount_point }}"
+    src: "/dev/{{ lvm_vg_name }}/{{ lvm_lv_name }}"
+    fstype: "{{ lvm_filesystem_type }}"
+    state: mounted
+    opts: "defaults,noatime"
+    dump: 0
+    passno: 2

@@ -1,0 +1,170 @@
+-- =============================================================================
+-- Extensions (instance-wide, created in the default database)
+-- =============================================================================
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+
+-- =============================================================================
+-- System Users
+-- =============================================================================
+
+-- Replication user
+CREATE USER {{ postgres_replication_user }}
+  WITH REPLICATION LOGIN ENCRYPTED PASSWORD '{{ postgres_replication_password }}';
+
+-- Exporter user
+CREATE USER {{ postgres_exporter_user }}
+  WITH LOGIN ENCRYPTED PASSWORD '{{ postgres_exporter_password }}';
+GRANT pg_monitor TO {{ postgres_exporter_user }};
+
+
+-- =============================================================================
+-- Databases, Roles and Users
+-- =============================================================================
+
+{% for db in postgres_databases %}
+-- -----------------------------------------------------------------------------
+-- Database: {{ db.name }}
+-- -----------------------------------------------------------------------------
+{% if db.owner is defined %}
+-- Owner user — owns the DB and can run application migrations/DDL
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ db.owner.username }}') THEN
+    CREATE USER {{ db.owner.username }}
+      WITH LOGIN ENCRYPTED PASSWORD '{{ db.owner.password }}';
+  END IF;
+END
+$$;
+CREATE DATABASE {{ db.name }} OWNER {{ db.owner.username }};
+{% else %}
+CREATE DATABASE {{ db.name }};
+{% endif %}
+
+-- Revoke default public access
+REVOKE ALL ON DATABASE {{ db.name }} FROM PUBLIC;
+
+{% if db.readers | default([]) | length > 0 %}
+-- Role: {{ db.name }}_reader
+CREATE ROLE {{ db.name }}_reader NOLOGIN;
+GRANT CONNECT ON DATABASE {{ db.name }} TO {{ db.name }}_reader;
+{% endif %}
+
+{% if db.writers | default([]) | length > 0 %}
+-- Role: {{ db.name }}_writer
+CREATE ROLE {{ db.name }}_writer NOLOGIN;
+GRANT CONNECT ON DATABASE {{ db.name }} TO {{ db.name }}_writer;
+{% endif %}
+
+{% endfor %}
+
+
+-- =============================================================================
+-- Per-database extensions and schema privileges
+-- =============================================================================
+
+{% for db in postgres_databases %}
+\connect {{ db.name }}
+
+{% for ext in db.extensions | default([]) %}
+CREATE EXTENSION IF NOT EXISTS "{{ ext }}";
+{% endfor %}
+
+{% if db.owner is defined %}
+-- Owner keeps full control of the public schema (needed by app migrations)
+ALTER SCHEMA public OWNER TO {{ db.owner.username }};
+{% endif %}
+
+-- Revoke default public schema privileges
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO PUBLIC;
+
+{% if db.readers | default([]) | length > 0 %}
+-- Reader role schema privileges
+GRANT USAGE ON SCHEMA public TO {{ db.name }}_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO {{ db.name }}_reader;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO {{ db.name }}_reader;
+{% endif %}
+
+{% if db.writers | default([]) | length > 0 %}
+-- Writer role schema privileges
+GRANT USAGE, CREATE ON SCHEMA public TO {{ db.name }}_writer;
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public TO {{ db.name }}_writer;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {{ db.name }}_writer;
+{% endif %}
+
+-- Exporter access
+GRANT USAGE ON SCHEMA public TO {{ postgres_exporter_user }};
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO {{ postgres_exporter_user }};
+
+{% if db.writers | default([]) | length > 0 %}
+-- Default privileges so future objects are reachable by the roles
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO {{ db.name }}_writer;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {{ db.name }}_writer;
+{% if db.owner is defined %}
+ALTER DEFAULT PRIVILEGES FOR ROLE {{ db.owner.username }} IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO {{ db.name }}_writer;
+ALTER DEFAULT PRIVILEGES FOR ROLE {{ db.owner.username }} IN SCHEMA public
+  GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {{ db.name }}_writer;
+{% endif %}
+{% endif %}
+{% if db.readers | default([]) | length > 0 %}
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT SELECT ON TABLES TO {{ db.name }}_reader;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT SELECT ON SEQUENCES TO {{ db.name }}_reader;
+{% if db.owner is defined %}
+ALTER DEFAULT PRIVILEGES FOR ROLE {{ db.owner.username }} IN SCHEMA public
+  GRANT SELECT ON TABLES TO {{ db.name }}_reader;
+ALTER DEFAULT PRIVILEGES FOR ROLE {{ db.owner.username }} IN SCHEMA public
+  GRANT SELECT ON SEQUENCES TO {{ db.name }}_reader;
+{% endif %}
+{% endif %}
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT SELECT ON TABLES TO {{ postgres_exporter_user }};
+{% if db.owner is defined %}
+ALTER DEFAULT PRIVILEGES FOR ROLE {{ db.owner.username }} IN SCHEMA public
+  GRANT SELECT ON TABLES TO {{ postgres_exporter_user }};
+{% endif %}
+
+{% endfor %}
+
+
+-- =============================================================================
+-- Create reader / writer login users and assign them to roles
+-- =============================================================================
+
+\connect postgres
+
+{% for db in postgres_databases %}
+-- Users for: {{ db.name }}
+
+{% for user in db.readers | default([]) %}
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ user.username }}') THEN
+    CREATE USER {{ user.username }}
+      WITH LOGIN ENCRYPTED PASSWORD '{{ user.password }}';
+  END IF;
+END
+$$;
+GRANT {{ db.name }}_reader TO {{ user.username }};
+ALTER ROLE {{ user.username }} IN DATABASE {{ db.name }} SET role = {{ db.name }}_reader;
+{% endfor %}
+
+{% for user in db.writers | default([]) %}
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ user.username }}') THEN
+    CREATE USER {{ user.username }}
+      WITH LOGIN ENCRYPTED PASSWORD '{{ user.password }}';
+  END IF;
+END
+$$;
+GRANT {{ db.name }}_writer TO {{ user.username }};
+ALTER ROLE {{ user.username }} IN DATABASE {{ db.name }} SET role = {{ db.name }}_writer;
+{% endfor %}
+
+{% endfor %}
