@@ -1,12 +1,39 @@
 ---
 - name: Check whether Docker is already installed
+  when: docker_airgapped_enabled | bool
   ansible.builtin.command: docker --version
   register: docker_version_check
   changed_when: false
   failed_when: false
 
+- name: Find Docker bundle parts on the Ansible controller
+  ansible.builtin.find:
+    paths: "{{ docker_airgapped_bundle_parts_dir }}"
+    patterns: "{{ docker_airgapped_bundle_part_pattern }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: docker_bundle_parts
+  when:
+    - docker_airgapped_enabled | bool
+    - docker_version_check.rc != 0
+
+- name: Fail when bundle parts are missing
+  ansible.builtin.fail:
+    msg: >-
+      Docker is not installed and no bundle parts matched
+      {{ docker_airgapped_bundle_parts_dir }}/{{ docker_airgapped_bundle_part_pattern }}.
+      Split files/docker-deb.tgz into parts (see files/README.md), install Docker
+      manually, or set docker_airgapped_enabled: false.
+  when:
+    - docker_airgapped_enabled | bool
+    - docker_version_check.rc != 0
+    - docker_bundle_parts.matched | default(0) == 0
+
 - name: Install Docker from the air-gapped bundle
-  when: docker_version_check.rc != 0
+  when:
+    - docker_airgapped_enabled | bool
+    - docker_version_check.rc != 0
   block:
     - name: Ensure staging directory exists
       ansible.builtin.file:
@@ -14,13 +41,28 @@
         state: directory
         mode: "0755"
 
-    - name: Unarchive docker-deb.tgz onto the host
+    - name: Copy Docker bundle parts to the host
+      ansible.builtin.copy:
+        src: "{{ item.path }}"
+        dest: "{{ docker_airgapped_workdir }}/{{ item.path | basename }}"
+        mode: "0644"
+      loop: "{{ docker_bundle_parts.files | sort(attribute='path') }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    - name: Reassemble Docker bundle from parts
+      ansible.builtin.shell: >-
+        /bin/cat {{ docker_bundle_parts.files | sort(attribute='path') | map(attribute='path') | map('basename') | join(' ') }}
+        > {{ docker_airgapped_bundle_name }}
+      args:
+        chdir: "{{ docker_airgapped_workdir }}"
+        creates: "{{ docker_airgapped_bundle_dest }}"
+
+    - name: Extract Docker bundle on the host
       ansible.builtin.unarchive:
-        src: "{{ docker_airgapped_bundle_src }}"
+        src: "{{ docker_airgapped_bundle_dest }}"
         dest: "{{ docker_airgapped_workdir }}"
-        mode: "0755"
-        # src lives on the controller and is pushed to the remote host.
-        remote_src: false
+        remote_src: true
 
     - name: Make install.sh executable
       ansible.builtin.file:
@@ -35,12 +77,14 @@
       changed_when: true
 
 - name: Ensure Docker service is enabled and running
+  when: docker_airgapped_enabled | bool
   ansible.builtin.systemd:
     name: docker
     state: started
     enabled: true
 
 - name: Wait for the Docker socket to be available
+  when: docker_airgapped_enabled | bool
   ansible.builtin.wait_for:
     path: /var/run/docker.sock
     timeout: 60

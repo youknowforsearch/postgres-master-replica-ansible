@@ -1,12 +1,6 @@
-# Local overrides and secrets — never commit real inventory or vault keys
 inventory/hosts.local.yml
 *.vault
 .vault_pass
 .vault_password
-
-# Air-gapped Docker bundle (supply your own offline package)
-files/docker-deb.tgz
-
-# Ansible artifacts
 *.retry
 .ansible/

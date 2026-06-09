@@ -1,10 +1,14 @@
 ---
-# Air-gapped Docker installation from a local bundle.
-# The bundle (docker-deb.tgz) ships the .deb packages and an install.sh
-# that runs `dpkg -i` and writes /etc/docker/daemon.json.
+# Set false when Docker is already installed on all hosts.
+docker_airgapped_enabled: true
 
-# Local path (on the Ansible controller) to the docker bundle.
-docker_airgapped_bundle_src: "{{ playbook_dir }}/files/docker-deb.tgz"
+# Split bundle parts live under files/ (each part < 100 MB for GitHub).
+docker_airgapped_bundle_parts_dir: "{{ playbook_dir }}/files"
+docker_airgapped_bundle_part_pattern: "docker-deb.tgz.part*"
+docker_airgapped_bundle_name: docker-deb.tgz
+
+# Reassembled archive path on the remote host during install.
+docker_airgapped_bundle_dest: "{{ docker_airgapped_workdir }}/{{ docker_airgapped_bundle_name }}"
 
 # Remote staging directory where the bundle is extracted.
 docker_airgapped_workdir: /tmp/docker-deb

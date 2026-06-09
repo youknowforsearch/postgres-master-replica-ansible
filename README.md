@@ -12,7 +12,7 @@ No application-specific coupling — configure your own databases, users, and ne
 - **Storage profiles** — `ssd`, `hdd`, or `iops` (with `postgres_disk_iops`)
 - **Log rotation** — PostgreSQL `log_rotation_age` / `log_rotation_size` plus host `logrotate`
 - **Metrics** — `postgres_exporter` on each node (Prometheus scrape target)
-- **Air-gapped Docker** — optional offline bundle (`files/docker-deb.tgz`)
+- **Air-gapped Docker** — offline bundle split into two repo files (`files/docker-deb.tgz.part00` + `.part01`)
 
 ## Layout
 
@@ -25,7 +25,10 @@ postgres-master-replica-ansible/
 ├── group_vars/
 │   ├── all.yml                  # SSH, private_network
 │   └── postgresql.yml           # secrets, databases, tuning inputs
-├── files/docker-deb.tgz         # supply locally (gitignored)
+├── files/
+│   ├── docker-deb.tgz.part00    # offline Docker bundle (part 1/2)
+│   ├── docker-deb.tgz.part01    # offline Docker bundle (part 2/2)
+│   └── README.md
 └── roles/
     ├── lvm_preflight/
     ├── docker_airgapped/
@@ -175,7 +178,16 @@ postgresql://myapp_owner:<password>@<replica-ip>:5432/myapp
 
 ## Air-gapped Docker
 
-Place your offline Docker bundle at `files/docker-deb.tgz` (gitignored). The `docker_airgapped` role installs Docker only when it is not already present.
+The offline Docker bundle is committed as **two parts** (~55 MB each, under GitHub's 100 MB limit):
+
+```text
+files/docker-deb.tgz.part00
+files/docker-deb.tgz.part01
+```
+
+The `docker_airgapped` role reassembles them on each host before install. The full `files/docker-deb.tgz` stays gitignored. See `files/README.md` to regenerate parts.
+
+Set `docker_airgapped_enabled: false` if Docker is already installed.
 
 ## License
 
