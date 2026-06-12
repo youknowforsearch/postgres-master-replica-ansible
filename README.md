@@ -50,7 +50,7 @@ cp inventory/hosts.yml inventory/hosts.local.yml   # optional local override
 # 2. Deploy
 ansible-playbook site.yml
 
-# Limit scope
+# Limit scope: only on given hosts
 ansible-playbook site.yml --limit postgresql-master
 ansible-playbook site.yml --limit postgresql-replica
 ```
