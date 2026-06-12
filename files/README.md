@@ -1,4 +1,4 @@
-# Offline Docker bundle (Git LFS)
+# Offline Docker bundle (Stored on Git LFS)
 
 The air-gapped Docker archive is stored as a single file tracked by **Git LFS**:
 
